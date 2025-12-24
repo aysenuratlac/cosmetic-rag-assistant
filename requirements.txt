@@ -1,0 +1,8 @@
+streamlit==1.37.1  # Web arayüzü (dosya yükleme + chat ekranı)
+pandas==2.2.2  # CSV/XLSX verisini tablo olarak okumak ve işlemek için
+openpyxl==3.1.5  # XLSX dosyalarını pandas ile okuyabilmek için
+chromadb==0.5.5  # Vector database (Chroma) ve persist edilen collection yönetimi için
+langchain==0.2.14  # RAG zinciri kurmak (retrieval + generation akışı)
+langchain-community==0.2.12  # Chroma entegrasyonu gibi community bileşenleri için
+langchain-google-genai==1.0.8  # Gemini LLM ve embedding entegrasyonu için
+python-dotenv==1.0.1  # .env dosyasından API key gibi gizli değerleri okumak için
