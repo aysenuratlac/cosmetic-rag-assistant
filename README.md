@@ -1,78 +1,85 @@
 # Cosmetic RAG Assistant
 
-## Proje Özeti
+## Proje Amacı
 
-Bu proje, kozmetik ürün verilerinin Excel (XLSX) formatında yüklenerek bir **knowledge base (KB)** haline getirildiği ve kullanıcıların doğal dilde sordukları sorulara **RAG (Retrieval-Augmented Generation)** yaklaşımıyla cevap alabildiği bir web uygulamasıdır.
+Bu proje, kozmetik ürün verilerinin Excel (XLSX) formatında yüklenerek bir **knowledge base (KB)** haline getirildiği ve kullanıcıların doğal dilde sordukları sorulara **LangChain tabanlı gerçek bir RAG (Retrieval‑Augmented Generation) zinciri** üzerinden cevap alabildiği bir web uygulamasıdır.
 
-Sistem iki ana rolü ayırır:
+Temel hedefler:
 
-* **Kullanıcı (Chat ekranı):** Ürünler hakkında serbest sohbet edebilir, öneri isteyebilir ve sorular sorar.
-* **Admin (Admin sekmesi):** Yeni ürün verilerini yükler ve knowledge base’i sıfırdan indeksler.
+* Ham tablo verisini doğrudan LLM’e vermemek
+* Her ürünü açıklayıcı, tek parça metinsel dokümana dönüştürmek
+* Bu dokümanları vektör veritabanında saklamak
+* Kullanıcı sorularına yalnızca bu KB’ye dayanarak cevap üretmek
 
-Amaç; ham tablo verisini doğrudan LLM’e vermek yerine, kontrollü ve açıklayıcı metin dokümanlarına dönüştürerek daha güvenli ve tutarlı cevaplar üretmektir.
+Bu sürüm, LangChain zincirlerinin (Retriever + LLM + History) **gerçek anlamda kullanıldığı** final mimariyi temsil eder.
 
 ---
 
-## Temel Mimari Yaklaşım
+## Genel Mimari
 
-Proje üç ana katmandan oluşur:
+Sistem üç ana katmandan oluşur:
 
 1. **Arayüz Katmanı (Streamlit)**
-2. **Retrieval Katmanı (Embeddings + ChromaDB)**
+2. **Retrieval Katmanı (LangChain + ChromaDB)**
 3. **Cevap Üretim Katmanı (Gemini LLM)**
 
-Bu katmanlar bilinçli olarak birbirinden ayrılmıştır. Böylece hem sade bir MVP elde edilir hem de ileride yeni özellikler eklenebilir.
+RAG orkestrasyonu LangChain tarafından yapılır. UI ve veri yükleme süreçleri zincirden izole tutulur.
 
 ---
 
-## Kullanıcı Arayüzü (Streamlit)
+## Arayüz Yapısı (Streamlit)
 
 Uygulama tek bir `app.py` dosyası üzerinden çalışır ve iki sekme içerir:
 
-### 1. Chat Sekmesi
+### 1) Chat Sekmesi
 
 * Son kullanıcıya yöneliktir.
 * Klasik bir chat ekranı gibi davranır.
 * Mesajlar kronolojik olarak yukarıdan aşağıya sıralanır.
-* Input alanı her zaman ekranın en altında sabit kalır.
-
-Kullanıcı:
-
-* Normal sohbet edebilir (selam, genel sorular vb.)
-* Ürün önerisi isteyebilir.
-* Ürünler hakkında detay sorular sorabilir.
+* Giriş (input) alanı her zaman ekranın en altında sabittir.
+* Asistan cevap üretirken "Yazıyor..." durumu gösterilir.
 
 Kullanıcı bu ekranda:
 
-* Dosya yüklemez
-* Indexleme yapmaz
-* Veritabanına doğrudan erişmez
+* Normal sohbet edebilir
+* Ürün önerisi isteyebilir
+* Ürünler hakkında detay sorular sorabilir
 
-### 2. Admin Sekmesi
+Chat ekranında:
+
+* Dosya yükleme
+* Indexleme
+* Veritabanı işlemleri
+
+bulunmaz.
+
+### 2) Admin Sekmesi
 
 * Teknik yönetim ekranıdır.
 * Sadece XLSX dosyası kabul edilir.
 * Yüklenen dosya:
 
   * Pandas ile okunur
-  * Zorunlu kolonlar kontrol edilir
+  * Zorunlu kolonlar doğrulanır
   * Her satır bir ürün olarak işlenir
 
-Admin **“KB oluştur ve indexle”** butonuna bastığında:
+**“KB oluştur ve indexle”** butonuna basıldığında:
 
-* Eski knowledge base tamamen silinir
+* Mevcut knowledge base tamamen silinir
 * Yeni ürünler sıfırdan embedding’lenir
 * ChromaDB’ye persist edilir
 
-Bu davranış bilinçlidir ve deterministik bir KB durumu sağlar.
+Bu reset davranışı bilinçlidir ve deterministik bir KB durumu sağlar.
 
 ---
 
-## Veri Girişi ve İşleme
+## Veri Girişi
 
 ### Desteklenen Format
 
-* XLSX (CSV bilinçli olarak kapsam dışıdır)
+* XLSX
+
+CSV desteği bilinçli olarak kapsam dışıdır.
 
 ### Beklenen Kolonlar
 
@@ -94,90 +101,97 @@ Kolon doğrulaması `utils/validators.py` içinde yapılır.
 
 ## Sentetik Doküman Üretimi
 
-Her ürün satırı için şu ilke uygulanır:
+Her ürün için şu ilke uygulanır:
 
 > **1 ürün = 1 doküman**
 
 `services/document_builder.py`:
 
-* Ürün bilgilerini tek parça, doğal dilli bir metne dönüştürür.
-* Bu metin LLM’e verilecek bağlamdır.
+* Ürün bilgilerini tek parça, doğal dilli bir metne dönüştürür
+* Bu metin, LLM’e verilecek bağlamdır
 
-Doküman; ürün adı, marka, kategori, fiyat, puan, uygun cilt tipleri ve ingredients bilgilerini içerir.
+Amaç:
+
+* Tutarlı
+* Açıklayıcı
+* RAG uyumlu dokümanlar üretmektir
 
 ---
 
-## Embedding ve Vector Database (ChromaDB)
+## Embedding ve Vector Database
 
 ### Embedding
 
-* Google Gemini `text-embedding-004` modeli kullanılır.
-* Her doküman 768 boyutlu bir vektöre çevrilir.
+* Google Gemini `text-embedding-004` modeli kullanılır
+* Her doküman 768 boyutlu bir vektöre dönüştürülür
 
 ### ChromaDB
 
-* Vektörler `db/` klasörü altında persist edilir.
+* Vektörler `db/` klasörü altında persist edilir
 * Tek collection kullanılır: `cosmetics_kb`
 * Her indexleme işleminde:
 
-  * Eski collection silinir
+  * Collection tamamen silinir
   * Yeni embedding’ler sıfırdan yazılır
 
-Bu yaklaşım:
-
-* Embedding boyutu çakışmalarını önler
-* Kirli veri riskini azaltır
+Bu yaklaşım embedding boyutu uyuşmazlığı ve kirli veri riskini ortadan kaldırır.
 
 ---
 
-## Retrieval (Semantic Search)
+## LangChain RAG Zinciri
 
-Kullanıcı chat ekranında soru sorduğunda:
+Bu projede RAG orkestrasyonu **LangChain** ile yapılır.
 
-1. Soru embedding’e çevrilir
-2. ChromaDB’de semantic search yapılır
-3. En alakalı N doküman getirilir
-4. Bu dokümanlar LLM’e context olarak verilir
+### Kullanılan Zincir
 
-Bu aşamada keyword arama yoktur; tamamen anlamsal benzerlik kullanılır.
+* **ConversationalRetrievalChain**
 
----
+### Zincir Bileşenleri
 
-## LLM Katmanı (Gemini)
+* **VectorStore**: Chroma (persist edilmiş)
+* **Retriever**: `vectorstore.as_retriever(k=5)`
+* **LLM**: Google Gemini (`gemini-2.5-flash`)
+* **History**: Streamlit `session_state` üzerinden sağlanır
 
-* Google Gemini Chat modeli kullanılır (`gemini-2.5-flash`).
-* Düşük temperature ile daha tutarlı cevaplar hedeflenir.
+Zincir `services/langchain_rag.py` dosyasında tanımlıdır.
 
-### Prompt Yaklaşımı
+### History Yönetimi
 
-Tek bir ana prompt kullanılır. Prompt:
-
-* Normal sohbet ile ürün sorularını ayırt eder
-* Ürün sorusuysa:
-
-  * Cevabın KB’ye dayandığını belirtir
-  * Önce kısa ürün tanıtımı yapar
-  * Detay istenmedikçe uzun analiz yapmaz
-* Emin olunmayan konularda:
-
-  * “belirlenemedi” ifadesini kullanır
-  * “olabilir / risk taşıyabilir” diliyle konuşur
-
-Intent sınıflandırması için ayrı bir model veya kural sistemi yoktur; karar prompt içinde alınır.
+* Chat geçmişi UI tarafında tutulur
+* `(user, assistant)` çiftleri LangChain zincirine aktarılır
+* Zincir önceki konuşmaları dikkate alarak cevap üretir
 
 ---
 
-## Chat Akışı ve State Yönetimi
+## Soru–Cevap Akışı
 
-* Tüm mesajlar `st.session_state["messages"]` içinde tutulur.
-* Mesajlar sırayla yeniden render edilir.
-* Kullanıcı mesajı gönderildiğinde:
+1. Kullanıcı mesaj gönderir
+2. Mesaj chat geçmişine eklenir
+3. LangChain zinciri çalışır:
 
-  * Anında ekranda görünür
-  * Asistan cevap üretirken spinner gösterilir
-  * Cevap geldikten sonra state güncellenir
+   * Soru embedding’e çevrilir
+   * ChromaDB semantic search yapar
+   * En alakalı dokümanlar alınır
+4. Gemini LLM yalnızca bu dokümanlara dayanarak cevap üretir
+5. Cevap chat ekranında gösterilir
 
-Bu yapı, klasik chat uygulamalarına benzer bir kullanıcı deneyimi sağlar.
+---
+
+## Indexleme Stratejisi
+
+* Indexleme **reset temellidir**
+* Her yeni XLSX yüklemede:
+
+  * Eski collection silinir
+  * Yeni collection oluşturulur
+
+Bu strateji:
+
+* Deterministik sonuçlar
+* Basit admin davranışı
+* Hata riskinin azalması
+
+sağlar.
 
 ---
 
@@ -189,9 +203,8 @@ mat409-chatbot/
 ├─ services/
 │  ├─ ingestion.py
 │  ├─ document_builder.py
-│  ├─ embeddings.py
 │  ├─ rag.py
-│  └─ llm.py
+│  ├─ langchain_rag.py
 ├─ utils/
 │  └─ validators.py
 ├─ data/
@@ -202,5 +215,4 @@ mat409-chatbot/
 ```
 
 * `data/` → ham Excel dosyaları (sadece indexleme sırasında kullanılır)
-* `db/` → ChromaDB persist edilen vector database
-
+* `db/` → ChromaDB’nin persist edilmiş vector veritabanı
