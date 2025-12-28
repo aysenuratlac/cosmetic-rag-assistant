@@ -12,6 +12,8 @@ Uygulama iki ana iş yapar:
 
 Veri kaynağı: Kaggle Cosmetics Datasets (https://www.kaggle.com/datasets/kingabzpro/cosmetics-datasets?resource=download)
 
+Demo videosu için: [buraya tıklayın.](https://drive.google.com/file/d/1Rw07_GH_wFvL0m_WJKErPYjR91sB27Kz/view?usp=sharing)
+
 Not: Indexleme sırasında LLM desteği kullanılır. Bu sayede yalnızca “ham tablo alanları” değil, ürün tanıtımı ve içerik analizi gibi ek feature’lar (ör. komedojenik risk, iritasyon/hassasiyet riski, alerjen olabilecek bileşenler hakkında “olabilir” diliyle uyarılar) sentetik dokümana eklenir. Bu feature’lar dokümanın bir parçası olduğu için aramada da açıklamada da kullanılabilir.
 
 
