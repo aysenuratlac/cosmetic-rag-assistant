@@ -2,32 +2,58 @@ import os
 import streamlit as st
 from dotenv import load_dotenv
 
-from services.ingestion import load_table_file
-from services.document_builder import build_product_document
-from services.rag import make_product_id, index_documents_to_chroma_with_embeddings
-from services.rag import semantic_search_in_chroma
-from services.llm import generate_answer
-from utils.validators import validate_required_columns
+from langchain_google_genai import ChatGoogleGenerativeAI  # Indexleme sırasında LLM ile doküman üretmek için
 
-
-def ensure_directories() -> None:
-    os.makedirs("data/uploads", exist_ok=True)
-    os.makedirs("db", exist_ok=True)
+from services.ingestion import load_table_file  # xlsx okuma
+from services.document_builder import build_product_document  # doküman oluşturma
+from services.rag import make_product_id, index_documents_to_chroma_with_embeddings  # rag işlemleri
+from utils.validators import validate_required_columns  # kolon doğrulama
+from services.langchain_rag import build_rag_chain  # rag zinciri oluşturma
 
 
 def save_uploaded_file(uploaded_file) -> str:
+    """
+    Yüklenen dosyayı diskte saklar ve dosya yolunu döner.
+    """
     file_path = os.path.join("data/uploads", uploaded_file.name)
     with open(file_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
     return file_path
 
 
+def build_recent_history_text(messages: list[dict], max_messages: int = 6) -> str:
+    """
+    Son max_messages adet mesajı (user + assistant) tek bir metne çevirir.
+    Retriever'a bağlam vermek için kullanılır.
+    """
+    recent = messages[-max_messages:]  # Son N mesajı al
+    lines = []
+
+    for m in recent:
+        role = m.get("role", "")
+        content = str(m.get("content", "")).strip()
+        if content:
+            lines.append(f"{role}: {content}")
+
+    return "\n".join(lines)
+
+
 def init_chat_state() -> None:
+    """
+    Chat ile ilgili session_state değişkenlerini başlatır.
+    """
     if "messages" not in st.session_state:
-        st.session_state["messages"] = []  # [{"role":"user"/"assistant","content":"..."}]
+        st.session_state["messages"] = []  # mesajlar
+    if "pending_question" not in st.session_state:
+        st.session_state["pending_question"] = None  # cevabı bekleyen soru
+    if "rag_chain" not in st.session_state:
+        st.session_state["rag_chain"] = None  # rag zinciri
 
 
 def render_chat_tab() -> None:
+    """
+    Chat tabını render eder. Input alanını altta sabitler. Pendingde input devre dışı bırakılır.
+    """
     st.subheader("Chat")
 
     init_chat_state()
@@ -49,7 +75,6 @@ def render_chat_tab() -> None:
             z-index: 999;
         }
 
-        /* Cevap üretilirken input'u görünür bırak ama tıklanmasın (opsiyonel) */
         .input-disabled {
             pointer-events: none;
             opacity: 0.85;
@@ -59,39 +84,68 @@ def render_chat_tab() -> None:
         unsafe_allow_html=True,
     )
 
-    if "pending_question" not in st.session_state:
-        st.session_state["pending_question"] = None
-
-    # 1) Mesajları çiz (kronolojik)
+    # 1) Mesajları kronolojik çiz
     for msg in st.session_state["messages"]:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # 2) Input HER ZAMAN GÖRÜNSÜN (pending olsa bile)
-    # Pending varken yeni mesaj almayacağız (istersen alıp kuyruğa da atabiliriz ama MVP için gerek yok)
+    # 2) Input HER ZAMAN görünsün (pending olsa bile)
     if st.session_state["pending_question"]:
         st.markdown('<div class="input-disabled">', unsafe_allow_html=True)
-        user_input = st.chat_input("Bir şey sor...")  # görünür kalır
+        user_input = st.chat_input("Bir şey sor...")
         st.markdown("</div>", unsafe_allow_html=True)
     else:
         user_input = st.chat_input("Bir şey sor...")
 
-    # 3) Kullanıcı mesaj gönderirse: anında state'e yaz, pending'e al, rerun
+    # 3) Kullanıcı mesaj gönderirse: user mesajını ekle + pending’e al + rerun
     if (not st.session_state["pending_question"]) and user_input and user_input.strip():
         user_input = user_input.strip()
         st.session_state["messages"].append({"role": "user", "content": user_input})
         st.session_state["pending_question"] = user_input
         st.rerun()
 
-    # 4) Eğer pending varsa: cevabı üret ve ekle (input zaten ekranda duruyor)
+    # 4) Pending varsa: LangChain chain ile cevap üret
     if st.session_state["pending_question"]:
         pending_text = st.session_state["pending_question"]
 
+        # Chain’i bir kere kurup session’da tut (her mesajda yeniden kurmayalım)
+        if st.session_state["rag_chain"] is None:
+            st.session_state["rag_chain"] = build_rag_chain(
+                persist_dir="db",
+                collection_name="cosmetics_kb",
+                k=5,
+            )
+
+        chain = st.session_state["rag_chain"]
+
         with st.chat_message("assistant"):
             with st.spinner("Yazıyor..."):
-                is_ok, _, results = semantic_search_in_chroma(query_text=pending_text)
-                context_docs = [r["document"] for r in results] if is_ok else []
-                answer = generate_answer(user_question=pending_text, context_docs=context_docs)
+                try:
+                    # Son 6 mesajdan bağlam oluştur (retriever için)
+                    recent_history_text = build_recent_history_text(
+                        st.session_state["messages"],
+                        max_messages=6,
+                    )
+
+                    # Retriever'a gidecek nihai soru
+                    final_question = (
+                        f"Konuşma bağlamı:\n{recent_history_text}\n\n"
+                        f"Son soru:\n{pending_text}"
+                    )
+
+                    # Zinciri çağır
+                    result = chain.invoke(
+                        {
+                            "input": final_question  # retriever bunu kullanır
+                        }
+                    )
+
+                    answer = str(result.get("answer", "")).strip()
+                    if not answer:
+                        answer = "Cevap üretilemedi (boş döndü)."
+
+                except Exception as exc:
+                    answer = f"Hata: {exc}"
 
             st.markdown(answer)
 
@@ -100,11 +154,9 @@ def render_chat_tab() -> None:
         st.rerun()
 
 
-
-
 def render_admin_tab() -> None:
     st.subheader("Admin")
-    st.caption("Yeni XLSX yükleyip ürün KB’yi indexleyebilirsin.")
+    st.caption("Yeni XLSX yükleyip ürün KB’yi indexleyebilirsin. (Her indexlemede KB sıfırlanır.)")
 
     uploaded_file = st.file_uploader("XLSX dosyası yükle", type=["xlsx"])
 
@@ -121,24 +173,47 @@ def render_admin_tab() -> None:
 
     st.success(message)
 
-    valid, missing = validate_required_columns(list(df.columns))
+    valid = validate_required_columns(list(df.columns))
     if not valid:
-        st.error(f"Eksik kolonlar: {missing}")
+        st.error("Eksik kolonlar var.")
         return
 
     st.success("Kolon kontrolü başarılı.")
     st.dataframe(df.head(5))
 
     if st.button("KB oluştur ve indexle"):
-        documents = []
-        metadatas = []
-        ids = []
+        # Indexleme sırasında LLM ile doküman alanlarını dolduracağız
+        api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+        if not api_key:
+            st.error("GOOGLE_API_KEY bulunamadı (.env).")
+            return
 
-        for _, row in df.iterrows():
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",  # hızlı model
+            google_api_key=api_key,  # API key
+            temperature=0.2,  # doküman üretiminde daha stabil
+        )
+
+        documents: list[str] = []
+        metadatas: list[dict] = []
+        ids: list[str] = []
+
+        total = len(df)  # Toplam satır sayısı
+        progress = st.progress(0)  # Progress bar (0-100)
+        status = st.empty()  # Durum metnini güncellemek için placeholder
+
+        # 0 satır edge-case (çok nadir)
+        if total == 0:
+            st.warning("Dosyada hiç satır yok.")
+            return
+
+        for i, (_, row) in enumerate(df.iterrows(), start=1):
             row_dict = row.to_dict()
 
             product_id = make_product_id(row_dict)
-            doc_text = build_product_document(row_dict)
+
+            # LLM'li doküman üretimi (intro + içerik analizi)
+            doc_text = build_product_document(row_dict, llm=llm)
 
             metadata = {
                 "product_id": product_id,
@@ -153,6 +228,13 @@ def render_admin_tab() -> None:
             metadatas.append(metadata)
             ids.append(product_id)
 
+            # Progress güncelle
+            pct = int((i / total) * 100)  # yüzde hesabı
+            progress.progress(pct)
+            status.write(f"İşleniyor: {i}/{total} (%{pct})")
+
+        status.write("Chroma indexleme başlıyor...")
+
         ok, msg = index_documents_to_chroma_with_embeddings(
             documents=documents,
             metadatas=metadatas,
@@ -162,14 +244,19 @@ def render_admin_tab() -> None:
         )
 
         if ok:
+            progress.progress(100)
+            status.write("Indexleme tamamlandı.")
             st.success(msg)
+            # Yeni KB gelince retriever zinciri eski indexi cache’lemesin diye chain’i sıfırla
+            st.session_state["rag_chain"] = None
         else:
+            status.write("Indexleme hata verdi.")
             st.error(msg)
+    
 
 
 def main() -> None:
     load_dotenv()
-    ensure_directories()
 
     st.set_page_config(page_title="Cosmetic RAG Assistant", layout="wide")
     st.title("Cosmetic RAG Assistant")

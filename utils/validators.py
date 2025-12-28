@@ -1,9 +1,4 @@
-from __future__ import annotations  # Python tip ipuçlarında ileri referans desteği için
-
-from typing import List, Tuple  # Fonksiyon dönüş tiplerini açık yazmak için
-
-
-REQUIRED_COLUMNS: List[str] = [
+REQUIRED_COLUMNS = (
     "Label",  # Ürün kategorisi/etiketi
     "Brand",  # Marka adı
     "Name",  # Ürün adı
@@ -15,10 +10,9 @@ REQUIRED_COLUMNS: List[str] = [
     "Normal",  # Normal cilt uygunluğu
     "Oily",  # Yağlı cilt uygunluğu
     "Sensitive",  # Hassas cilt uygunluğu
-]  # Blueprint'te beklenen kolon isimleri
+) 
 
-
-def validate_required_columns(actual_columns: List[str]) -> Tuple[bool, List[str]]:
+def validate_required_columns(actual_columns):
     """
     Yüklenen dosyada gerekli kolonlar var mı kontrol eder.
 
@@ -26,15 +20,11 @@ def validate_required_columns(actual_columns: List[str]) -> Tuple[bool, List[str
         actual_columns: Dosyadan okunan kolon isimleri listesi.
 
     Returns:
-        (is_valid, missing_columns):
+        (is_valid):
             is_valid: Tüm zorunlu kolonlar varsa True.
-            missing_columns: Eksik kolonların listesi.
+
     """
-    missing_columns: List[str] = []  # Eksik kolonları toplamak için
+    actual_set = set(actual_columns)
+    is_valid = all(col in actual_set for col in REQUIRED_COLUMNS)
+    return is_valid
 
-    for col in REQUIRED_COLUMNS:
-        if col not in actual_columns:
-            missing_columns.append(col)  # Dosyada olmayan zorunlu kolonu listeye ekler
-
-    is_valid: bool = len(missing_columns) == 0  # Eksik yoksa dosya geçerli sayılır
-    return is_valid, missing_columns  # Sonucu ve eksikleri döndürür

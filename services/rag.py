@@ -1,129 +1,26 @@
-from __future__ import annotations  # Tip ipuçlarında ileri referans için
+from __future__ import annotations
 
-import hashlib  # Stabil id üretmek için hash kullanacağız
-from typing import Any, Dict, List, Tuple  # Tipleri açık yazmak için
+import hashlib
+import os
+from typing import Any, Dict, List, Tuple
 
-import chromadb  # ChromaDB client kullanmak için
-from services.embeddings import embed_query, embed_texts  # Gemini embedding üretmek için
+import chromadb
+from langchain_community.vectorstores import Chroma
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 
 def make_product_id(row: Dict[str, Any]) -> str:
     """
-    Ürün için stabil bir product_id üretir.
-    Aynı (Name + Brand + Label) gelirse aynı id üretilir.
-
-    Args:
-        row: Ürün verisi (kolon adı -> değer).
-
-    Returns:
-        Hash tabanlı product_id.
+    Ürün satırından stabil bir product_id üretir.
+    Aynı ürün tekrar yüklense bile aynı id üretilsin diye sha256 kullanılır.
     """
-    name = str(row.get("Name", "")).strip()  # Ürün adını alır
-    brand = str(row.get("Brand", "")).strip()  # Marka adını alır
-    label = str(row.get("Label", "")).strip()  # Kategori bilgisini alır
+    brand = str(row.get("Brand", "")).strip().lower()
+    name = str(row.get("Name", "")).strip().lower()
+    label = str(row.get("Label", "")).strip().lower()
 
-    raw_key = f"{name}|{brand}|{label}"  # Stabil anahtar üretir
-    product_id = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()  # SHA-256 ile hash üretir
-    return product_id  # product_id döndürür
+    base = f"{brand}::{name}::{label}"
+    return hashlib.sha256(base.encode("utf-8")).hexdigest()
 
-
-def index_documents_to_chroma(
-    documents: List[str],
-    metadatas: List[Dict[str, Any]],
-    ids: List[str],
-    persist_dir: str = "db",
-    collection_name: str = "cosmetics_kb",
-) -> Tuple[bool, str]:
-    """
-    Dokümanları ChromaDB'ye yazar ve diske persist eder.
-
-    Args:
-        documents: Her ürün için 1 metin dokümanı listesi.
-        metadatas: Her doküman için metadata listesi.
-        ids: Her doküman için id listesi.
-        persist_dir: Chroma verisinin yazılacağı klasör.
-        collection_name: Kullanılacak collection adı.
-
-    Returns:
-        (is_ok, message) sonucu.
-    """
-    try:
-        client = chromadb.PersistentClient(path=persist_dir)  # Chroma'yı disk üzerinde persist edecek client
-        
-        try:
-            client.delete_collection(name=collection_name)  # Eski collection varsa siler (embedding boyutu çakışmasını çözer)
-        except Exception:
-            pass  # Collection yoksa veya silinemezse hata vermesin
-
-
-        collection = client.get_or_create_collection(name=collection_name)  # Tek collection kullanır
-
-        collection.add(
-            documents=documents,  # Metin dokümanları
-            metadatas=metadatas,  # Metadata alanları
-            ids=ids,  # product_id listesi
-        )  # Chroma'ya yazar
-
-        return True, f"Indexleme tamamlandı. Toplam doküman: {len(documents)}"  # Başarı mesajı
-
-    except Exception as exc:
-        return False, f"Indexleme başarısız: {exc}"  # Hata mesajı
-
-def search_documents_in_chroma(
-    query_text: str,
-    persist_dir: str = "db",
-    collection_name: str = "cosmetics_kb",
-    top_k: int = 5,
-) -> Tuple[bool, str, List[Dict[str, Any]]]:
-    """
-    ChromaDB içinde doküman metninde query_text geçen kayıtları arar.
-    Bu yöntem embedding gerektirmez, sadece metin eşleşmesi üzerinden çalışır.
-
-    Args:
-        query_text: Kullanıcının aramak istediği metin.
-        persist_dir: Chroma persist klasörü.
-        collection_name: Collection adı.
-        top_k: En fazla döndürülecek sonuç sayısı.
-
-    Returns:
-        (is_ok, message, results):
-            results: Her eleman {"id":..., "document":..., "metadata":...} içerir.
-    """
-    try:
-        client = chromadb.PersistentClient(path=persist_dir)  # Persist edilen DB'ye bağlanır
-        collection = client.get_or_create_collection(name=collection_name)  # Collection'ı alır
-
-        # where_document metin içinde arama yapar (embedding olmadan çalışır)
-        res = collection.get(
-            where_document={"$contains": query_text},  # Doküman metninde query_text içeriyor mu
-            include=["documents", "metadatas"],  # Doküman ve metadata'yı getirir
-        )
-
-        ids = res.get("ids", [])  # Bulunan id listesi
-        docs = res.get("documents", [])  # Bulunan doküman listesi
-        metas = res.get("metadatas", [])  # Bulunan metadata listesi
-
-        # Rank'a göre sıralamak için önce tüm sonuçları tek listede toplayacağız
-        combined = list(zip(ids, docs, metas))  # (id, document, metadata) üçlüsünü birleştirir
-        combined_sorted = sorted(combined, key=lambda x: float(x[2].get("rank", 0) or 0), reverse=True)  # Rank'a göre sıralar
-
-        results: List[Dict[str, Any]] = []  # Sonuçları burada toplayacağız
-
-        for i in range(min(top_k, len(combined_sorted))):
-            doc_id, doc_text, md = combined_sorted[i]  # Sıralı sonuçtan tek kaydı alır
-            results.append(
-                {
-                    "id": doc_id,  # Doküman id
-                    "document": doc_text,  # Doküman metni
-                    "metadata": md,  # Metadata
-                }
-            )  # Sonucu listeye ekler
-
-
-        return True, f"Bulunan sonuç: {len(results)}", results  # Başarıyla döndürür
-
-    except Exception as exc:
-        return False, f"Arama başarısız: {exc}", []  # Hata varsa boş liste döndürür
 
 def index_documents_to_chroma_with_embeddings(
     documents: List[str],
@@ -133,86 +30,54 @@ def index_documents_to_chroma_with_embeddings(
     collection_name: str = "cosmetics_kb",
 ) -> Tuple[bool, str]:
     """
-    Dokümanları Gemini embeddings ile vektöre çevirip ChromaDB'ye yazar.
+    Knowledge base'i SIFIRDAN indexler.
 
-    Args:
-        documents: Her ürün için 1 metin dokümanı listesi.
-        metadatas: Her doküman için metadata listesi.
-        ids: Her doküman için id listesi.
-        persist_dir: Chroma verisinin yazılacağı klasör.
-        collection_name: Collection adı.
-
-    Returns:
-        (is_ok, message)
+    Strateji:
+    1) Mevcut collection varsa komple sil (dimension mismatch riskini sıfırlar)
+    2) LangChain Chroma + GoogleGenerativeAIEmbeddings ile tekrar oluştur
+    3) add_texts ile dokümanları ve embedding'leri yaz
+    4) persist et
     """
+    if not documents:
+        return False, "Indexlenecek doküman yok."
+    if not (len(documents) == len(metadatas) == len(ids)):
+        return False, "documents/metadatas/ids uzunlukları eşit olmalı."
+
+    api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+    if not api_key:
+        return False, "GOOGLE_API_KEY bulunamadı (.env)."
+
     try:
-        vectors = embed_texts(documents)  # Tüm dokümanları embedding'e çevirir
+        # 1) Collection reset: delete_collection (en temiz yöntem)
+        client = chromadb.PersistentClient(path=persist_dir)
+        try:
+            client.delete_collection(name=collection_name)
+        except Exception:
+            pass  # collection yoksa sorun değil
 
-        client = chromadb.PersistentClient(path=persist_dir)  # Persist client
-        collection = client.get_or_create_collection(name=collection_name)  # Collection alır
+        # 2) Embedding modeli (768 boyut)
+        embeddings = GoogleGenerativeAIEmbeddings(
+            model="models/text-embedding-004",
+            google_api_key=api_key,
+        )
 
-        collection.delete(ids=ids)  # Aynı id varsa temizler
+        # 3) LangChain Chroma ile yeniden oluştur ve ekle
+        vectorstore = Chroma(
+            persist_directory=persist_dir,
+            collection_name=collection_name,
+            embedding_function=embeddings,
+        )
 
-        collection.add(
-            ids=ids,  # id listesi
-            documents=documents,  # metin dokümanları
-            metadatas=metadatas,  # metadata
-            embeddings=vectors,  # embedding vektörleri
-        )  # Embedding'li şekilde yazar
+        vectorstore.add_texts(
+            texts=documents,
+            metadatas=metadatas,
+            ids=ids,
+        )
 
-        return True, f"Embedding'li indexleme tamamlandı. Toplam doküman: {len(documents)}"
+        # 4) Diske yaz
+        vectorstore.persist()
+
+        return True, f"Indexleme tamamlandı. Toplam doküman: {len(documents)}"
 
     except Exception as exc:
-        return False, f"Embedding'li indexleme başarısız: {exc}"
-
-def semantic_search_in_chroma(
-    query_text: str,
-    persist_dir: str = "db",
-    collection_name: str = "cosmetics_kb",
-    top_k: int = 5,
-) -> Tuple[bool, str, List[Dict[str, Any]]]:
-    """
-    Gemini embeddings ile semantic search yapar.
-
-    Args:
-        query_text: Kullanıcı sorgusu.
-        persist_dir: Chroma persist klasörü.
-        collection_name: Collection adı.
-        top_k: Döndürülecek sonuç sayısı.
-
-    Returns:
-        (is_ok, message, results)
-    """
-    try:
-        q_vec = embed_query(query_text)  # Sorguyu embedding'e çevirir
-
-        client = chromadb.PersistentClient(path=persist_dir)  # Persist DB
-        collection = client.get_or_create_collection(name=collection_name)  # Collection
-
-        res = collection.query(
-            query_embeddings=[q_vec],  # Sorgu embedding listesi
-            n_results=top_k,  # Kaç sonuç istiyoruz
-            include=["documents", "metadatas", "distances"],  # Doküman + metadata + distance
-        )  # Semantic search yapar
-
-        ids = res.get("ids", [[]])[0]  # Sonuç id listesi
-        docs = res.get("documents", [[]])[0]  # Sonuç doküman listesi
-        metas = res.get("metadatas", [[]])[0]  # Sonuç metadata listesi
-        dists = res.get("distances", [[]])[0]  # Mesafe listesi
-
-        results: List[Dict[str, Any]] = []  # Sonuçları toplayacağız
-
-        for i in range(len(ids)):
-            results.append(
-                {
-                    "id": ids[i],  # id
-                    "document": docs[i],  # doküman
-                    "metadata": metas[i],  # metadata
-                    "distance": dists[i],  # benzerlik mesafesi
-                }
-            )  # Sonuç ekler
-
-        return True, f"Semantic sonuç: {len(results)}", results
-
-    except Exception as exc:
-        return False, f"Semantic arama başarısız: {exc}", []
+        return False, f"Indexleme hatası: {exc}"

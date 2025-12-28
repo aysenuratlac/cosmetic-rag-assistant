@@ -1,7 +1,5 @@
 from __future__ import annotations  # Tip ipuçlarında ileri referans için
-
 from typing import Tuple  # Fonksiyon dönüş tipini açık yazmak için
-
 import pandas as pd  # XLSX dosyasını okumak için pandas
 
 
@@ -20,7 +18,7 @@ def load_table_file(file_path: str) -> Tuple[bool, str, pd.DataFrame | None]:
     """
     try:
         if not file_path.lower().endswith(".xlsx"):
-            return False, "Bu MVP sürümünde sadece XLSX dosyaları desteklenmektedir.", None  # Bilinçli kısıt
+            return False, "Sadece XLSX dosyaları desteklenmektedir.", None  # Bilinçli kısıt
 
         df = pd.read_excel(file_path)  # XLSX dosyasını okur
         return True, "XLSX dosyası okundu.", df  # Başarılı okuma sonucu
