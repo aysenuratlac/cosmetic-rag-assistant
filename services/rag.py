@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Tuple
 
 import chromadb
 from langchain_community.vectorstores import Chroma
+from langchain_openai import OpenAIEmbeddings  # OpenAI embedding modeli için 
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 
@@ -28,55 +29,53 @@ def index_documents_to_chroma_with_embeddings(
     ids: List[str],
     persist_dir: str = "db",
     collection_name: str = "cosmetics_kb",
+    provider: str = "gemini",  # Hangi sağlayıcıyla embed edeceğimizi seçmek için
 ) -> Tuple[bool, str]:
-    """
-    Knowledge base'i SIFIRDAN indexler.
-
-    Strateji:
-    1) Mevcut collection varsa komple sil (dimension mismatch riskini sıfırlar)
-    2) LangChain Chroma + GoogleGenerativeAIEmbeddings ile tekrar oluştur
-    3) add_texts ile dokümanları ve embedding'leri yaz
-    4) persist et
-    """
-    if not documents:
-        return False, "Indexlenecek doküman yok."
-    if not (len(documents) == len(metadatas) == len(ids)):
-        return False, "documents/metadatas/ids uzunlukları eşit olmalı."
-
-    api_key = os.getenv("GOOGLE_API_KEY", "").strip()
-    if not api_key:
-        return False, "GOOGLE_API_KEY bulunamadı (.env)."
+    ...
+    # Provider’a göre API key seç
+    if provider == "openai":
+        api_key = os.getenv("OPENAI_API_KEY", "").strip()  # OpenAI key (.env)
+        if not api_key:
+            return False, "OPENAI_API_KEY bulunamadı (.env)."  # Key yoksa hata
+    else:
+        api_key = os.getenv("GOOGLE_API_KEY", "").strip()  # Gemini key (.env)
+        if not api_key:
+            return False, "GOOGLE_API_KEY bulunamadı (.env)."  # Key yoksa hata
 
     try:
-        # 1) Collection reset: delete_collection (en temiz yöntem)
+        # 1) Collection reset: delete_collection (dimension mismatch riskini azaltır)
         client = chromadb.PersistentClient(path=persist_dir)
         try:
             client.delete_collection(name=collection_name)
         except Exception:
             pass  # collection yoksa sorun değil
 
-        # 2) Embedding modeli (768 boyut)
-        embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/text-embedding-004",
-            google_api_key=api_key,
-        )
+        # 2) Embedding modeli seçimi
+        if provider == "openai":
+            embeddings = OpenAIEmbeddings(
+                model="text-embedding-3-small",  # Ucuz/hızlı embedding modeli
+                openai_api_key=api_key,          # OpenAI API key
+            )
+        else:
+            embeddings = GoogleGenerativeAIEmbeddings(
+                model="models/text-embedding-004",  # Gemini embedding modeli (mevcut)
+                google_api_key=api_key,             # Gemini API key
+            )
 
-        # 3) LangChain Chroma ile yeniden oluştur ve ekle
+        # 3) LangChain Chroma ile ekle
         vectorstore = Chroma(
-            persist_directory=persist_dir,
-            collection_name=collection_name,
-            embedding_function=embeddings,
+            persist_directory=persist_dir,       # DB klasörü
+            collection_name=collection_name,     # Collection adı
+            embedding_function=embeddings,       # Seçilen embedding fonksiyonu
         )
 
         vectorstore.add_texts(
-            texts=documents,
-            metadatas=metadatas,
-            ids=ids,
+            texts=documents,       # Doküman metinleri
+            metadatas=metadatas,   # Metadata
+            ids=ids,               # Stabil product_id
         )
 
-        # 4) Diske yaz
-        vectorstore.persist()
-
+        vectorstore.persist()  # Diske yaz
         return True, f"Indexleme tamamlandı. Toplam doküman: {len(documents)}"
 
     except Exception as exc:

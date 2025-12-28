@@ -10,6 +10,7 @@ from services.rag import make_product_id, index_documents_to_chroma_with_embeddi
 from utils.validators import validate_required_columns  # kolon doğrulama
 from services.langchain_rag import build_rag_chain  # rag zinciri oluşturma
 
+PROVIDER = "openai"  
 
 def save_uploaded_file(uploaded_file) -> str:
     """
@@ -111,10 +112,12 @@ def render_chat_tab() -> None:
         # Chain’i bir kere kurup session’da tut (her mesajda yeniden kurmayalım)
         if st.session_state["rag_chain"] is None:
             st.session_state["rag_chain"] = build_rag_chain(
-                persist_dir="db",
-                collection_name="cosmetics_kb",
+                persist_dir=f"db_{PROVIDER}",                 # db_openai / db_gemini
+                collection_name=f"cosmetics_kb_{PROVIDER}",  # collection ayır
                 k=5,
+                provider=PROVIDER,                            # <<< EN KRİTİK SATIR
             )
+
 
         chain = st.session_state["rag_chain"]
 
@@ -129,8 +132,9 @@ def render_chat_tab() -> None:
 
                     # Retriever'a gidecek nihai soru
                     final_question = (
-                        f"Konuşma bağlamı:\n{recent_history_text}\n\n"
-                        f"Son soru:\n{pending_text}"
+                       f"{recent_history_text}"
+                        # f"Konuşma bağlamı:\n{recent_history_text}\n\n"
+                        # f"Son soru:\n{pending_text}"
                     )
 
                     # Zinciri çağır
@@ -239,9 +243,11 @@ def render_admin_tab() -> None:
             documents=documents,
             metadatas=metadatas,
             ids=ids,
-            persist_dir="db",
-            collection_name="cosmetics_kb",
+            persist_dir=f"db_{PROVIDER}",                 # db_openai / db_gemini
+            collection_name=f"cosmetics_kb_{PROVIDER}",  # collection ayır
+            provider=PROVIDER,                            # <<< EN KRİTİK SATIR
         )
+
 
         if ok:
             progress.progress(100)
