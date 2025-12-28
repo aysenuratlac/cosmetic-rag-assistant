@@ -2,74 +2,50 @@
 
 ## Proje Amacı
 
-Bu proje, kozmetik ürün verilerinin Excel (XLSX) formatında yüklenerek bir **knowledge base (KB)** haline getirildiği ve kullanıcıların doğal dilde sordukları sorulara **LangChain tabanlı gerçek bir RAG (Retrieval‑Augmented Generation) zinciri** üzerinden cevap alabildiği bir web uygulamasıdır.
+Bu proje, kozmetik ürün verilerinin Excel (XLSX) formatında yüklenerek bir **knowledge base (KB)** haline getirildiği ve kullanıcıların doğal dilde sordukları sorulara **LangChain tabanlı bir RAG (Retrieval‑Augmented Generation)** akışıyla cevap alabildiği bir Streamlit uygulamasıdır.
 
 Temel hedefler:
 
-* Ham tablo verisini doğrudan LLM’e vermemek
-* Her ürünü açıklayıcı, tek parça metinsel dokümana dönüştürmek
-* Bu dokümanları vektör veritabanında saklamak
-* Kullanıcı sorularına yalnızca bu KB’ye dayanarak cevap üretmek
-
-Bu sürüm, LangChain zincirlerinin (Retriever + LLM + History) **gerçek anlamda kullanıldığı** final mimariyi temsil eder.
+- Ham tablo verisini doğrudan LLM’e vermemek
+- Her ürünü **tek bir sentetik metin dokümanına** dönüştürmek (1 ürün = 1 doküman)
+- Bu dokümanları embedding’leyip **ChromaDB** içinde saklamak
+- Kullanıcı sorularına yalnızca bu KB’ye dayanarak cevap üretmek
 
 ---
 
-## Genel Mimari
+## Teknoloji Yığını
 
-Sistem üç ana katmandan oluşur:
-
-1. **Arayüz Katmanı (Streamlit)**
-2. **Retrieval Katmanı (LangChain + ChromaDB)**
-3. **Cevap Üretim Katmanı (Gemini LLM)**
-
-RAG orkestrasyonu LangChain tarafından yapılır. UI ve veri yükleme süreçleri zincirden izole tutulur.
+- **UI:** Streamlit
+- **RAG Orkestrasyonu:** LangChain
+- **LLM:** Google Gemini (`gemini-2.5-flash`)
+- **Embeddings:** Google Gemini (`text-embedding-004`)
+- **Vector DB:** ChromaDB (persist: `db/`)
 
 ---
 
-## Arayüz Yapısı (Streamlit)
+## Uygulama Akışı
 
-Uygulama tek bir `app.py` dosyası üzerinden çalışır ve iki sekme içerir:
+Uygulama iki sekmeden oluşur:
 
-### 1) Chat Sekmesi
+### 1) Chat
 
-* Son kullanıcıya yöneliktir.
-* Klasik bir chat ekranı gibi davranır.
-* Mesajlar kronolojik olarak yukarıdan aşağıya sıralanır.
-* Giriş (input) alanı her zaman ekranın en altında sabittir.
-* Asistan cevap üretirken "Yazıyor..." durumu gösterilir.
+- Kullanıcı sohbet ekranından soru sorar
+- Sistem, ChromaDB içinden ilgili ürün dokümanlarını getirir (semantic retrieval)
+- **Retriever, yalnızca son soruya değil, konuşma geçmişini de içeren bir metne göre arama yapar**
+- Gemini modeli, getirilen dokümanlara dayanarak yanıt üretir
+- Mesajlar `st.session_state["messages"]` içinde tutulur
 
-Kullanıcı bu ekranda:
+> Not: Konuşma geçmişinin retriever girdisine eklenmesi bilinçli bir tercihtir. Amaç, takip sorularında bağlam kaybını azaltmaktır.
 
-* Normal sohbet edebilir
-* Ürün önerisi isteyebilir
-* Ürünler hakkında detay sorular sorabilir
+---
 
-Chat ekranında:
+### 2) Admin
 
-* Dosya yükleme
-* Indexleme
-* Veritabanı işlemleri
-
-bulunmaz.
-
-### 2) Admin Sekmesi
-
-* Teknik yönetim ekranıdır.
-* Sadece XLSX dosyası kabul edilir.
-* Yüklenen dosya:
-
-  * Pandas ile okunur
-  * Zorunlu kolonlar doğrulanır
-  * Her satır bir ürün olarak işlenir
-
-**“KB oluştur ve indexle”** butonuna basıldığında:
-
-* Mevcut knowledge base tamamen silinir
-* Yeni ürünler sıfırdan embedding’lenir
-* ChromaDB’ye persist edilir
-
-Bu reset davranışı bilinçlidir ve deterministik bir KB durumu sağlar.
+- XLSX dosyası yüklenir
+- Kolonlar doğrulanır
+- Her satır için bir ürün dokümanı üretilir
+- Dokümanlar embedding’lenir ve ChromaDB’ye yazılır
+- Her indexleme işleminde collection sıfırlanır (temiz yeniden kurulum)
 
 ---
 
@@ -77,25 +53,23 @@ Bu reset davranışı bilinçlidir ve deterministik bir KB durumu sağlar.
 
 ### Desteklenen Format
 
-* XLSX
-
-CSV desteği bilinçli olarak kapsam dışıdır.
+- XLSX
 
 ### Beklenen Kolonlar
 
-* Label
-* Brand
-* Name
-* Price
-* Rank
-* Ingredients
-* Combination
-* Dry
-* Normal
-* Oily
-* Sensitive
+- Label
+- Brand
+- Name
+- Price
+- Rank
+- Ingredients
+- Combination
+- Dry
+- Normal
+- Oily
+- Sensitive
 
-Kolon doğrulaması `utils/validators.py` içinde yapılır.
+Kolon doğrulama `utils/validators.py` içinde yapılır.
 
 ---
 
@@ -107,91 +81,75 @@ Her ürün için şu ilke uygulanır:
 
 `services/document_builder.py`:
 
-* Ürün bilgilerini tek parça, doğal dilli bir metne dönüştürür
-* Bu metin, LLM’e verilecek bağlamdır
+- Ürün alanlarını tek bir, doğal dilli metin haline getirir
+- Indexleme sırasında opsiyonel olarak LLM kullanarak:
+  - kısa ürün tanıtımı
+  - içerik analizi (risk dili: “olabilir”)
+  üretir
+- LLM kullanılmadığında güvenli fallback metinler kullanılır
 
-Amaç:
-
-* Tutarlı
-* Açıklayıcı
-* RAG uyumlu dokümanlar üretmektir
+Bu metinler embedding’e giren asıl dokümanlardır.
 
 ---
 
-## Embedding ve Vector Database
+## Indexleme ve Vector Database (ChromaDB)
 
-### Embedding
+Indexleme fonksiyonu:
 
-* Google Gemini `text-embedding-004` modeli kullanılır
-* Her doküman 768 boyutlu bir vektöre dönüştürülür
+`services/rag.py → index_documents_to_chroma_with_embeddings`
 
-### ChromaDB
+Strateji:
 
-* Vektörler `db/` klasörü altında persist edilir
-* Tek collection kullanılır: `cosmetics_kb`
-* Her indexleme işleminde:
+1. Mevcut collection varsa tamamen silinir
+2. `text-embedding-004` modeli ile embedding alınır
+3. Dokümanlar, metadata ve stabil `product_id` ile ChromaDB’ye eklenir
+4. Veritabanı `db/` klasörüne persist edilir
 
-  * Collection tamamen silinir
-  * Yeni embedding’ler sıfırdan yazılır
+Collection adı: `cosmetics_kb`
 
-Bu yaklaşım embedding boyutu uyuşmazlığı ve kirli veri riskini ortadan kaldırır.
+Bu reset temelli yaklaşım:
+
+- Embedding boyutu uyuşmazlıklarını
+- Kirli veri problemlerini
+
+bilinçli olarak önler.
 
 ---
 
 ## LangChain RAG Zinciri
 
-Bu projede RAG orkestrasyonu **LangChain** ile yapılır.
+Zincir tanımı: `services/langchain_rag.py`
 
-### Kullanılan Zincir
+Kullanılan yapı:
 
-* **ConversationalRetrievalChain**
+- Persist edilmiş **Chroma VectorStore**
+- `vectorstore.as_retriever(k=5)`
+- `ChatPromptTemplate` (system + human)
+- `create_stuff_documents_chain`
+- `create_retrieval_chain`
 
-### Zincir Bileşenleri
+System prompt prensipleri:
 
-* **VectorStore**: Chroma (persist edilmiş)
-* **Retriever**: `vectorstore.as_retriever(k=5)`
-* **LLM**: Google Gemini (`gemini-2.5-flash`)
-* **History**: Streamlit `session_state` üzerinden sağlanır
-
-Zincir `services/langchain_rag.py` dosyasında tanımlıdır.
-
-### History Yönetimi
-
-* Chat geçmişi UI tarafında tutulur
-* `(user, assistant)` çiftleri LangChain zincirine aktarılır
-* Zincir önceki konuşmaları dikkate alarak cevap üretir
+- Cevap yalnızca `{context}` içindeki bilgiye dayanır
+- Bağlamda yoksa: **“Bunu mevcut bilgi tabanında bulamadım.”**
+- Tıbbi teşhis veya kesin yargı yok
+- Emin olunmayan durumlarda: **“belirlenemedi”**
+- Kısa ve net cevaplar
 
 ---
 
-## Soru–Cevap Akışı
+## Konuşma Geçmişi ve Retrieval Kararı
 
-1. Kullanıcı mesaj gönderir
-2. Mesaj chat geçmişine eklenir
-3. LangChain zinciri çalışır:
+Bu projede konuşma geçmişi:
 
-   * Soru embedding’e çevrilir
-   * ChromaDB semantic search yapar
-   * En alakalı dokümanlar alınır
-4. Gemini LLM yalnızca bu dokümanlara dayanarak cevap üretir
-5. Cevap chat ekranında gösterilir
+- UI tarafında tutulur
+- Retriever’a giden sorgu metnine eklenir
 
----
+Bu yaklaşımın amacı:
 
-## Indexleme Stratejisi
+- Takip sorularında bağlam kopmasını azaltmak
+- "Bu ürün peki hassas ciltte?" gibi referanslı soruları daha doğru eşleştirmek
 
-* Indexleme **reset temellidir**
-* Her yeni XLSX yüklemede:
-
-  * Eski collection silinir
-  * Yeni collection oluşturulur
-
-Bu strateji:
-
-* Deterministik sonuçlar
-* Basit admin davranışı
-* Hata riskinin azalması
-
-sağlar.
 
 ---
 
@@ -214,5 +172,52 @@ mat409-chatbot/
 └─ requirements.txt
 ```
 
-* `data/` → ham Excel dosyaları (sadece indexleme sırasında kullanılır)
-* `db/` → ChromaDB’nin persist edilmiş vector veritabanı
+- `data/uploads/`: Admin yüklemeleri
+- `db/`: ChromaDB persist dosyaları
+
+---
+
+## Kurulum (Windows + VSCode)
+
+### 1) Sanal ortam oluştur
+
+```bash
+python -m venv venv
+```
+
+### 2) Sanal ortamı aktif et
+
+```bash
+venv\Scripts\activate
+```
+
+### 3) Bağımlılıkları kur
+
+```bash
+pip install -r requirements.txt
+```
+
+### 4) Ortam değişkenlerini ayarla
+
+Proje kökünde `.env` dosyası oluştur:
+
+```env
+GOOGLE_API_KEY=YOUR_API_KEY
+```
+
+### 5) Uygulamayı çalıştır
+
+```bash
+streamlit run app.py
+```
+
+---
+
+## Kullanım
+
+1. **Admin** sekmesine geç
+2. XLSX dosyasını yükle
+3. "KB oluştur ve indexle" butonuna bas
+4. **Chat** sekmesine geçerek soru sor
+
+
