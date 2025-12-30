@@ -9,6 +9,7 @@ from services.document_builder import build_product_document  # doküman oluştu
 from services.rag import make_product_id, index_documents_to_chroma_with_embeddings  # rag işlemleri
 from utils.validators import validate_required_columns  # kolon doğrulama
 from services.langchain_rag import build_rag_chain  # rag zinciri oluşturma
+from langchain_openai import ChatOpenAI
 
 PROVIDER = "openai"  
 
@@ -187,16 +188,28 @@ def render_admin_tab() -> None:
 
     if st.button("KB oluştur ve indexle"):
         # Indexleme sırasında LLM ile doküman alanlarını dolduracağız
-        api_key = os.getenv("GOOGLE_API_KEY", "").strip()
-        if not api_key:
-            st.error("GOOGLE_API_KEY bulunamadı (.env).")
-            return
+        if PROVIDER.strip().lower() == "openai":
+            api_key = os.getenv("OPENAI_API_KEY", "").strip()
+            if not api_key:
+                st.error("OPENAI_API_KEY bulunamadı (.env).")
+                return
 
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",  # hızlı model
-            google_api_key=api_key,  # API key
-            temperature=0.2,  # doküman üretiminde daha stabil
-        )
+            llm = ChatOpenAI(
+                model="gpt-4o-mini",  # hızlı model
+                openai_api_key=api_key,      # API key
+                temperature=0.2,             # doküman üretiminde daha stabil
+            )
+        else:
+            api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+            if not api_key:
+                st.error("GOOGLE_API_KEY bulunamadı (.env).")
+                return
+
+            llm = ChatGoogleGenerativeAI(
+                model="gemini-2.5-flash",  # hızlı model
+                google_api_key=api_key,  # API key
+                temperature=0.2,  # doküman üretiminde daha stabil
+            )
 
         documents: list[str] = []
         metadatas: list[dict] = []
