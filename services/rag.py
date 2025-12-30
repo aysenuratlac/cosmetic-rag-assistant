@@ -31,7 +31,6 @@ def index_documents_to_chroma_with_embeddings(
     collection_name: str = "cosmetics_kb",
     provider: str = "gemini",  # Hangi sağlayıcıyla embed edeceğimizi seçmek için
 ) -> Tuple[bool, str]:
-    ...
     # Provider’a göre API key seç
     if provider == "openai":
         api_key = os.getenv("OPENAI_API_KEY", "").strip()  # OpenAI key (.env)
