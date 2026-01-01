@@ -8,3 +8,5 @@ export_project_to_txt.py
 project_snapshot.txt
 db_openai/
 db_gemini/
+db_sorgulama.ipynb
+data_pieces/
