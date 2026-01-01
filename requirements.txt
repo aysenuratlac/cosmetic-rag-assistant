@@ -147,3 +147,5 @@ wrapt==1.17.3
 yarl==1.22.0
 zipp==3.23.0
 langchain-openai==0.1.23
+ragas==0.1.21
+datasets==2.20.0

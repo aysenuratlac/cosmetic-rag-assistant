@@ -6,3 +6,5 @@ TeknikAciklama.md
 github_bilgi.md  
 export_project_to_txt.py
 project_snapshot.txt
+db_openai/
+db_gemini/

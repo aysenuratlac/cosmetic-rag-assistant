@@ -86,7 +86,7 @@ def render_chat_tab() -> None:
         unsafe_allow_html=True,
     )
 
-    # 1) Mesajları kronolojik çiz
+    # 1) Mesajları kronolojik ekrana yazdır
     for msg in st.session_state["messages"]:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
@@ -108,7 +108,7 @@ def render_chat_tab() -> None:
 
     # 4) Pending varsa: LangChain chain ile cevap üret
     if st.session_state["pending_question"]:
-        pending_text = st.session_state["pending_question"]
+        #pending_text = st.session_state["pending_question"] # şu an kullanılmıyor direkt recent history’den final question yapıyoruz
 
         # Chain’i bir kere kurup session’da tut (her mesajda yeniden kurmayalım)
         if st.session_state["rag_chain"] is None:
@@ -116,7 +116,7 @@ def render_chat_tab() -> None:
                 persist_dir=f"db_{PROVIDER}",                 # db_openai / db_gemini
                 collection_name=f"cosmetics_kb_{PROVIDER}",  # collection ayır
                 k=5,
-                provider=PROVIDER,                            # <<< EN KRİTİK SATIR
+                provider=PROVIDER,                            
             )
 
 
@@ -211,15 +211,15 @@ def render_admin_tab() -> None:
                 temperature=0.2,  # doküman üretiminde daha stabil
             )
 
-        documents: list[str] = []
-        metadatas: list[dict] = []
-        ids: list[str] = []
+        documents: list[str] = [] #Chroma’ya gidecek metinler
+        metadatas: list[dict] = [] #Chroma’ya gidecek metadata dict’leri
+        ids: list[str] = [] #Chroma’ya gidecek doküman ID’leri
 
         total = len(df)  # Toplam satır sayısı
         progress = st.progress(0)  # Progress bar (0-100)
         status = st.empty()  # Durum metnini güncellemek için placeholder
 
-        # 0 satır edge-case (çok nadir)
+        # 0 satır edge-case
         if total == 0:
             st.warning("Dosyada hiç satır yok.")
             return
