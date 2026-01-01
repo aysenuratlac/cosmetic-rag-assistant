@@ -409,6 +409,9 @@ Değerlendirme çıktıları `reports/` klasörüne kaydedilir:
 Ayrıca sonuçların manuel analizi için:
 - `reports/report_analysis.ipynb` notebook’u kullanılmıştır.
 
+Sonuçlar:
+![alt text](image.png)
+
 ### 13.5 NaN değerler hakkında
 Bazı örneklerde metrik sonuçları **NaN** olarak raporlanabilir. Bu durum bir hata değildir.
 

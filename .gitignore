@@ -10,3 +10,7 @@ db_openai/
 db_gemini/
 db_sorgulama.ipynb
 data_pieces/
+reports\model_comparison_per_question.csv
+reports\model_comparison_summary.csv
+reports\make_model_compare.py
+reports\report_analysis copy.ipynb
