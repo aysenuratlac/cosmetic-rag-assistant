@@ -22,57 +22,86 @@ Not: Indexleme sırasında LLM desteği kullanılır. Bu sayede yalnızca “ham
 Klasör yapısı özet:
 
 ```
-mat409-chatbot/
+cosmetic-rag-assistant/
 ├─ app.py
 ├─ services/
-│  ├─ ingestion.py
-│  ├─ document_builder.py
-│  ├─ rag.py
-│  ├─ langchain_rag.py
+│ ├─ ingestion.py
+│ ├─ document_builder.py
+│ ├─ rag.py
+│ ├─ langchain_rag.py
 ├─ utils/
-│  └─ validators.py
+│ └─ validators.py
 ├─ data/
-│  └─ uploads/
-├─ db_gemini/
+│ └─ uploads/
 ├─ db_openai/
+├─ db_gemini/
+├─ scripts/
+│ ├─ build_ragas_testset.py
+│ └─ run_ragas_eval.py
+├─ test_data/
+│ ├─ ragas_testset_openai.jsonl
+│ └─ ragas_testset_gemini.jsonl
+├─ reports/
+│ ├─ ragas_report_openai.csv
+│ ├─ ragas_report_openai.md
+│ ├─ ragas_report_gemini.csv
+│ ├─ ragas_report_gemini.md
+│ └─ report_analysis.ipynb
 ├─ requirements.txt
 ├─ .env.example
 └─ README.md
 ```
 
-Dosyalar ne işe yarar?
+Dosyalar ve klasörler ne işe yarar?
 
 - `app.py`
-  - Streamlit UI.
-  - İki sekme içerir: Chat ve Admin.
-  - Admin sekmesinde KB’yi oluşturur/indexler.
-  - Chat sekmesinde RAG chain’i kullanır.
+  - Streamlit tabanlı ana uygulama dosyasıdır.
+  - Chat ve Admin sekmelerini içerir.
+  - Admin sekmesinde KB oluşturma ve indexleme işlemlerini yönetir.
+  - Chat sekmesinde LangChain RAG zinciri ile soru-cevap akışını yürütür.
 
-- `services/ingestion.py`
-  - Yüklenen dosyayı okur.
-  - Bu projede bilinçli olarak sadece XLSX kabul edilir.
+- `services/`
+  - Projenin iş mantığını (business logic) içeren modülleri barındırır.
+  - `ingestion.py`: Yüklenen XLSX dosyasını okur ve DataFrame olarak döndürür.
+  - `document_builder.py`: Her ürün satırından tek bir sentetik, RAG uyumlu metin dokümanı üretir.
+  - `rag.py`: Ürünler için stabil `product_id` üretir ve dokümanları ChromaDB’ye indeksler.
+  - `langchain_rag.py`: Embedding, retriever ve LLM’i birleştirerek LangChain RAG zincirini kurar.
 
-- `utils/validators.py`
-  - Dataset’te beklenen zorunlu kolonlar var mı kontrol eder.
+- `utils/`
+  - Yardımcı fonksiyonları içerir.
+  - `validators.py`: Dataset’te beklenen zorunlu kolonların varlığını kontrol eder.
 
-- `services/document_builder.py`
-  - Tek ürün satırından tek bir “sentetik ürün dokümanı” üretir.
-  - LLM verilirse `Ürün tanıtımı` ve `İçerik analizi` alanlarını LLM ile doldurur.
-  - LLM yoksa veya hata olursa fallback metin döner.
+- `data/`
+  - Uygulama üzerinden yüklenen dosyaların saklandığı dizindir.
+  - `uploads/`: Admin sekmesinde yüklenen XLSX dosyaları burada tutulur.
 
-- `services/rag.py`
-  - `make_product_id`: ürün için stabil id üretir (aynı ürün tekrar gelirse id sabit kalsın).
-  - `index_documents_to_chroma_with_embeddings`: embedding alır ve ChromaDB’ye yazar.
-  - Indexleme sırasında aynı collection’ı silip yeniden kurar (dimension mismatch / kirli data riskini azaltmak için).
+- `db_openai/` ve `db_gemini/`
+  - ChromaDB’nin persist edilen vektör verilerini içerir.
+  - Embedding boyutu ve modeli karışmaması için provider bazında ayrılmıştır.
 
-- `services/langchain_rag.py`
-  - LangChain RAG zincirini kurar.
-  - Provider seçimine göre embedding ve LLM seçer.
-  - Chroma’dan retriever oluşturur ve `create_retrieval_chain` ile QA zincirini bağlar.
+- `scripts/`
+  - RAGAS değerlendirme sürecine ait script’leri içerir.
+  - `build_ragas_testset.py`: Mevcut knowledge base üzerinden otomatik test seti üretir.
+  - `run_ragas_eval.py`: Üretilen test seti ile RAGAS değerlendirmesini çalıştırır.
 
-- `db_gemini/` ve `db_openai/`
-  - ChromaDB’nin persist edilen verisi.
-  - Provider bazında ayrı tutulur (embedding boyutu / embedding modeli karışmasın diye).
+- `test_data/`
+  - RAGAS için otomatik üretilmiş test setlerini içerir.
+  - Test setleri JSONL formatındadır ve provider bazında ayrılmıştır.
+
+- `reports/`
+  - RAGAS değerlendirme çıktılarının kaydedildiği dizindir.
+  - CSV dosyaları metrik sonuçlarını içerir.
+  - Markdown dosyaları özet değerlendirme raporlarıdır.
+  - `report_analysis.ipynb`, sonuçların manuel analizi ve incelenmesi için kullanılır.
+
+- `requirements.txt`
+  - Projenin Python bağımlılıklarını listeler.
+
+- `.env.example`
+  - Gerekli ortam değişkenleri için örnek yapılandırma dosyasıdır.
+
+- `README.md`
+  - Projenin kurulum, kullanım, mimari ve değerlendirme dokümantasyonunu içerir.
 
 
 ## 3. Mimari akış (yükleme → indeksleme → sohbet)
@@ -287,8 +316,20 @@ LLM guardrail yaklaşımı:
 
 Bu yaklaşım sayesinde alerjen veya iritan olabilecek içerikler hakkında, kesinlik iddiası olmadan bilgilendirici uyarılar üretilebilir.
 
+## 11. Doküman granülaritesi ve chunking kararı
 
-## 11. LangSmith (opsiyonel izleme ve debug)
+Bu projede **chunking uygulanmamıştır**. Bilgi tabanı tasarımında bilinçli olarak şu yaklaşım seçilmiştir:
+
+- **1 ürün = 1 sentetik doküman = 1 vektör**
+- Her ürün satırı, tek bir metin dokümanına dönüştürülür ve ChromaDB’ye tek parça olarak indekslenir.
+
+Bu tercih özellikle bu veri tipi için uygundur çünkü:
+- Kaynak veri zaten “ürün kartı” gibi **doğal bir atomic birim** (tek ürün).
+- Kullanıcı sorularının çoğu (fiyat, puan, cilt tipi uygunluğu, içerik yorumu) **tek ürün bağlamında** cevaplanır.
+- Chunking yapılması, tek ürünün parçalanmasına ve retrieval’da bağlamın bölünmesine yol açabilir.
+
+
+## 12. LangSmith (opsiyonel izleme ve debug)
 
 Bu projede LangChain akışlarını gözlemlemek ve debug sürecini kolaylaştırmak amacıyla **LangSmith** entegrasyonu opsiyonel olarak desteklenmektedir.
 
@@ -311,4 +352,88 @@ Notlar:
 - LangSmith tamamen opsiyoneldir; aktif edilmediğinde uygulamanın çalışma şeklinde herhangi bir değişiklik olmaz.
 - Geliştirme ve performans analizi aşamalarında fayda sağlar.
 
+## 13. RAGAS ile değerlendirme 
+
+Geliştirilen RAG sisteminin retrieval ve cevap kalitesini ölçmek amacıyla **RAGAS** kullanılarak
+otomatik, tekrar edilebilir ve savunulabilir bir değerlendirme süreci kurulmuştur.
+
+### 13.1 Amaç
+Değerlendirme kapsamında üç temel metrik kullanılmıştır:
+
+- **context_recall**: Retrieval aşamasının başarısını ölçer.
+- **faithfulness**: Üretilen cevabın gerçekten getirilen dokümanlara dayanıp dayanmadığını ölçer.
+- **answer_relevancy**: Üretilen cevabın, sorulan soru ile ne kadar alakalı olduğunu ölçer.
+
+### 13.2 Test seti üretimi
+Test seti manuel olarak yazılmamış, mevcut knowledge base üzerinden otomatik üretilmiştir.
+
+- Test seti üretim script’i:  
+  `scripts/build_ragas_testset.py`
+- Üretilen test setleri:  
+  `test_data/`
+  - `ragas_testset_openai.jsonl`
+  - `ragas_testset_gemini.jsonl`
+
+Her test örneği şu alanları içerir:
+- `question`
+- `ground_truth`
+- `reference_context_ids` (ürünün `product_id` değeri)
+
+Bu yapı sayesinde test seti:
+- Knowledge base ile tutarlı
+- Tekrar üretilebilir
+- Otomatik değerlendirmeye uygundur
+
+### 13.3 Değerlendirme akışı
+Değerlendirme şu script ile gerçekleştirilir:
+
+- Değerlendirme script’i:  
+  `scripts/run_ragas_eval.py`
+
+Bu script:
+1. Test setini okur
+2. Her soruyu mevcut LangChain RAG zincirine sorar
+3. `answer`, `contexts`, `retrieved_context_ids` ve `reference_context_ids` alanlarını toplar
+4. RAGAS `evaluate()` fonksiyonunu çalıştırır
+
+### 13.4 Sonuç dosyaları
+Değerlendirme çıktıları `reports/` klasörüne kaydedilir:
+
+- CSV sonuçları:
+  - `ragas_report_openai.csv`
+  - `ragas_report_gemini.csv`
+- Markdown özet raporları:
+  - `ragas_report_openai.md`
+  - `ragas_report_gemini.md`
+
+Ayrıca sonuçların manuel analizi için:
+- `reports/report_analysis.ipynb` notebook’u kullanılmıştır.
+
+### 13.5 NaN değerler hakkında
+Bazı örneklerde metrik sonuçları **NaN** olarak raporlanabilir. Bu durum bir hata değildir.
+
+Genellikle şu durumlarda ortaya çıkar:
+- `ground_truth` veya `answer` çok kısa ise
+- Liste / etiket formatında ifade içeriyorsa
+- RAGAS anlamlı bir doğal dil iddiası (claim) çıkaramıyorsa
+
+Bu nedenle NaN değerler:
+- Retrieval’ın başarısız olduğu
+- Modelin uydurma yaptığı
+
+anlamına **doğrudan gelmez**.
+
+
+
+## 14. Sınırlılıklar ve gelecek çalışmalar
+
+### 14.1 Sınırlılıklar
+- Ürün içerik analizi ve risk uyarıları LLM tarafından üretilir ve **kesin teşhis / kesin hüküm** amaçlamaz; “olabilir” dili bir guardrail olarak korunur.
+- Varsayılan retrieval akışı semantic similarity üzerinedir; metadata alanları ileride daha güçlü filtreleme/sıralama için genişletilebilir.
+- RAGAS metriklerinde bazı örneklerde NaN görülebilir (kısa/liste formatlı ground-truth gibi durumlar).
+
+### 14.2 Gelecek çalışmalar
+- `retrieved_context_ids` ve `reference_context_ids` kullanılarak **ID tabanlı custom recall** metriği eklenmesi (debug ve daha doğrudan retrieval ölçümü için).
+- Soru tipine göre farklı retrieval stratejileri (ör. fiyat sorularında daha deterministik alan odaklı yaklaşım).
+- Daha geniş test seti ve farklı soru türleriyle (öneri, karşılaştırma, içerik hassasiyeti gibi) RAGAS değerlendirmesinin genişletilmesi.
 
