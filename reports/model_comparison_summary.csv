@@ -1,0 +1,3 @@
+model,n_rows,n_questions,context_recall_mean,faithfulness_mean,answer_relevancy_mean,overall_mean,context_recall_nan_count,faithfulness_nan_count,answer_relevancy_nan_count
+gemini,60,60,1.0,0.9791666666666666,0.8502382560727298,0.9431349742464654,1,0,1
+openai,60,60,1.0,1.0,0.835360093358512,0.945120031119504,1,0,0

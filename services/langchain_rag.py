@@ -60,7 +60,7 @@ def build_rag_chain(
             temperature=0.3,
         )
 
-    # 5) Prompt (chat_history paramını invoke’dan kaldırdıysan burada da kaldır)
+    # 5) Prompt
     system_prompt = (
         "Sen kozmetik ürün verileriyle çalışan bir soru-cevap asistanısın.\n"
         "Yalnızca veri tabanındaki ürünlerle ilgili bilgi vermekten sorumlusun.\n"
